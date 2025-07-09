@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>DOMPurify mystery</title>
+  </head>
+  <body>
+    <p>
+      To see the source code for this page, visit
+      <a href="https://github.com/zlatkovsky/DOMPurifyMystery">https://github.com/zlatkovsky/DOMPurifyMystery</a>.
+    </p>
+    <hr />
+
+    <h1>SVG Input</h1>
+    <button style="position: absolute; top: 30px; right: 10px" id="resetInput">Reset</button>
+    <textarea
+      id="svgInput"
+      style="width: 100%; height: 200px; margin-bottom: 20px"
+      placeholder="SVG input will be loaded here..."
+      spellcheck="false"
+      autocorrect="off"
+    ></textarea>
+    <h1>Before sanitization</h1>
+    <div id="svgPlaceholderBefore"></div>
+    <hr />
+    <h1>DOMPurify version / config</h1>
+    <select id="versionSelect" style="display: block; margin-bottom: 10px">
+      <option value="" selected disabled hidden>Select a version</option>
+      <option value="2.5.7">2.5.7 (will be broken regardless of options)</option>
+      <option value="3.1.4">3.1.4 (works regardless of options)</option>
+      <option value="3.2.4">
+        3.2.4 (works once you've enabled HTML integration points at least once; broken otherwise)
+      </option>
+      <option value="3.2.6">3.2.6 (latest available version as of July 8, 2025; same behavior as 3.2.4)</option>
+    </select>
+    <div id="refreshPage" style="display: none; margin-bottom: 10px">
+      To select a different DOMPurify version, refresh this page
+    </div>
+    <div style="display: block; margin-bottom: 20px">
+      <input type="checkbox" id="htmlIntegrationPoints" />
+      <label for="htmlIntegrationPoints">Enable HTML integration points</label>
+    </div>
+    <button id="sanitizeButton" disabled="disabled" style="font-size: 130%">Sanitize!</button>
+
+    <div id="afterSanitization" style="display: none">
+      <br /><br />
+      <hr />
+      <h1>After sanitization</h1>
+      <h3>
+        <span>DOMPurify selection: &nbsp;</span>
+        <span id="domPurifySelection"></span>
+      </h3>
+      <div id="svgPlaceholderAfter"></div>
+      <h3>Raw output</h3>
+      <textarea id="rawOutput" style="width: 100%; height: 200px" readonly="readonly"></textarea>
+    </div>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        // Set the SVG input textarea to the input variable, and update the preview
+        document.getElementById("svgInput").value = sessionStorage.getItem("svgInput") || getInitialInput();
+        document.getElementById("svgInput").addEventListener("input", () => {
+          sessionStorage.setItem("svgInput", document.getElementById("svgInput").value);
+          updateSvgBeforePreview();
+          document.getElementById("afterSanitization").style.display = "none";
+        });
+        updateSvgBeforePreview();
+
+        // Restore version selection
+        const savedVersion = sessionStorage.getItem("dompurify-version");
+        if (savedVersion) {
+          const versionSelect = document.getElementById("versionSelect");
+          versionSelect.value = savedVersion;
+          if (versionSelect.value === savedVersion) {
+            document.getElementById("sanitizeButton").disabled = false;
+          }
+        }
+
+        // Restore HTML integration points checkbox
+        const savedHtmlIntegration = sessionStorage.getItem("dompurify-html-integration");
+        if (savedHtmlIntegration === "true") {
+          document.getElementById("htmlIntegrationPoints").checked = true;
+        }
+      });
+
+      let alreadyLoadedScript = false;
+      document.getElementById("sanitizeButton").addEventListener("click", () => {
+        const versionSelectElement = document.getElementById("versionSelect");
+
+        if (alreadyLoadedScript) {
+          executeOnceDomPurifyIsReady();
+        } else {
+          alreadyLoadedScript = true;
+
+          const script = document.createElement("script");
+          script.src = `https://unpkg.com/dompurify@${versionSelectElement.value}/dist/purify.js`;
+          script.onload = executeOnceDomPurifyIsReady;
+          document.head.appendChild(script);
+
+          document.getElementById("domPurifySelection").textContent =
+            versionSelectElement.options[versionSelectElement.selectedIndex].textContent;
+        }
+
+        function executeOnceDomPurifyIsReady() {
+          const currentInput = getCleanInput();
+
+          const config = {
+            USE_PROFILES: { html: true, svg: true },
+            WHOLE_DOCUMENT: false,
+            ADD_TAGS: ["foreignObject"],
+            ADD_ATTR: [],
+            ...(document.getElementById("htmlIntegrationPoints").checked
+              ? { HTML_INTEGRATION_POINTS: { foreignobject: true } }
+              : {}),
+          };
+
+          const sanitizedInput = DOMPurify.sanitize(currentInput, config);
+          document.getElementById("svgPlaceholderAfter").innerHTML = sanitizedInput;
+          document.getElementById("rawOutput").value = tryPrettifyXml(sanitizedInput);
+
+          document.getElementById("refreshPage").style.display = "block";
+          document.getElementById("versionSelect").style.display = "none";
+          document.getElementById("afterSanitization").style.display = "block";
+        }
+      });
+
+      document.getElementById("versionSelect").addEventListener("change", (event) => {
+        document.getElementById("sanitizeButton").disabled = false;
+        sessionStorage.setItem("dompurify-version", event.target.value);
+      });
+
+      document.getElementById("htmlIntegrationPoints").addEventListener("change", (event) => {
+        sessionStorage.setItem("dompurify-html-integration", event.target.checked);
+      });
+
+      document.getElementById("resetInput").addEventListener("click", () => {
+        const initialInput = getInitialInput();
+        document.getElementById("svgInput").value = initialInput;
+        sessionStorage.setItem("svgInput", initialInput);
+        updateSvgBeforePreview();
+        document.getElementById("afterSanitization").style.display = "none";
+      });
+
+      function getCleanInput() {
+        return document.getElementById("svgInput").value.trim().replace(/\n/g, "").replace(/\s+/g, " ");
+      }
+
+      function updateSvgBeforePreview() {
+        document.getElementById("svgPlaceholderBefore").innerHTML = getCleanInput();
+      }
+
+      function getInitialInput() {
+        return `
+          <svg aria-roledescription="block" role="graphics-document document" viewBox="-5 -68 582.703125 80"
+              style="max-width: 582.703125px;" xmlns="http://www.w3.org/2000/svg" width="100%"
+              id="mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b">
+              <style>#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b{font-family:"trebuchet
+                  ms",verdana,arial,sans-serif;font-size:16px;fill:#333;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .error-icon{fill:#552222;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .error-text{fill:#552222;stroke:#552222;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .edge-thickness-normal{stroke-width:1px;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .edge-thickness-thick{stroke-width:3.5px;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .edge-pattern-solid{stroke-dasharray:0;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .edge-thickness-invisible{stroke-width:0;fill:none;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .marker{fill:#333333;stroke:#333333;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .marker.cross{stroke:#333333;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  svg{font-family:"trebuchet
+                  ms",verdana,arial,sans-serif;font-size:16px;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  p{margin:0;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b .label{font-family:"trebuchet
+                  ms",verdana,arial,sans-serif;color:#333;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .cluster-label text{fill:#333;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b .cluster-label
+                  span,#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  p{color:#333;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b .label
+                  text,#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  span,#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  p{fill:#333;color:#333;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b .node
+                  rect,#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b .node
+                  circle,#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b .node
+                  ellipse,#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b .node
+                  polygon,#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b .node
+                  path{fill:#ECECFF;stroke:#9370DB;stroke-width:1px;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .flowchart-label text{text-anchor:middle;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .node .label{text-align:center;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .node.clickable{cursor:pointer;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .arrowheadPath{fill:#333333;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b .edgePath
+                  .path{stroke:#333333;stroke-width:2.0px;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .flowchart-link{stroke:#333333;fill:none;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .edgeLabel{background-color:rgba(232,232,232,
+                  0.8);text-align:center;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b .edgeLabel
+                  rect{opacity:0.5;background-color:rgba(232,232,232, 0.8);fill:rgba(232,232,232,
+                  0.8);}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b .labelBkg{background-color:rgba(232,
+                  232, 232, 0.5);}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b .node .cluster{fill:rgba(255,
+                  255, 222, 0.5);stroke:rgba(170, 170, 51, 0.2);box-shadow:rgba(50, 50, 93, 0.25) 0px 13px
+                  27px -5px,rgba(0, 0, 0, 0.3) 0px 8px 16px
+                  -8px;stroke-width:1px;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b .cluster
+                  text{fill:#333;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b .cluster
+                  span,#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  p{color:#333;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:"trebuchet
+                  ms",verdana,arial,sans-serif;font-size:12px;background:hsl(80, 100%,
+                  96.2745098039%);border:1px solid
+                  #aaaa33;border-radius:2px;pointer-events:none;z-index:100;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#333;}#mermaid-a21d4ae0-5d23-4f88-a642-59f93f3e3e0b
+                  :root{--mermaid-font-family:"trebuchet ms",verdana,arial,sans-serif;}</style>
+              <g></g>
+              <g class="block">
+                  <g transform="translate(98.1171875, -41.5)" id="RandR"
+                      class="node default default flowchart-label">
+                      <rect height="27" width="180.234375" y="-13.5" x="-90.1171875" ry="0" rx="0" style=""
+                          class="basic label-container"></rect>
+                      <g transform="translate(-86.1171875, -9.5)" style="" class="label">
+                          <rect></rect>
+                          <foreignObject height="19" width="172.234375">
+                              <div style="display: inline-block; white-space: nowrap;"
+                                  xmlns="http://www.w3.org/1999/xhtml">
+                                  <span class="nodeLabel">Label text shows up!</span>
+                              </div>
+                          </foreignObject>
+                      </g>
+                  </g>
+              </g>
+          </svg>`
+          .trim()
+          .replace(/\n          /g, "\n");
+      }
+
+      // Taken from https://stackoverflow.com/a/47317538
+      function tryPrettifyXml(sourceXml) {
+        const xmlDoc = new DOMParser().parseFromString(sourceXml, "application/xml");
+
+        if (xmlDoc.documentElement.getElementsByTagName("parsererror").length > 0) {
+          // If couldn't parse, just bail out and return the input XML as is:
+          return sourceXml;
+        }
+
+        const xsltDoc = new DOMParser().parseFromString(
+          [
+            // describes how we want to modify the XML - indent everything
+            `<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform">`,
+            `  <xsl:strip-space elements="*"/>`,
+            `  <xsl:template match="para[content-style][not(text())]">`, // change to just text() to strip space in text nodes
+            `    <xsl:value-of select="normalize-space(.)"/>`,
+            `  </xsl:template>`,
+            `  <xsl:template match="node()|@*">`,
+            `    <xsl:copy><xsl:apply-templates select="node()|@*"/></xsl:copy>`,
+            `  </xsl:template>`,
+            `  <xsl:output indent="yes"/>`,
+            `</xsl:stylesheet>`,
+          ].join("\n"),
+          "application/xml"
+        );
+
+        const xsltProcessor = new XSLTProcessor();
+        xsltProcessor.importStylesheet(xsltDoc);
+        const resultDoc = xsltProcessor.transformToDocument(xmlDoc);
+        const resultXml = new XMLSerializer().serializeToString(resultDoc);
+        return resultXml;
+      }
+    </script>
+  </body>
+</html>
